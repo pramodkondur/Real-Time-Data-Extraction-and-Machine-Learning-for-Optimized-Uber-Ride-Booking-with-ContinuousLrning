@@ -1,4 +1,4 @@
-# Real-Time Uber Ride Price, Waiting Time, and Ride Time Prediction
+# Real-Time Data Extraction and Machine Learning for Optimized Uber Ride Booking
 
 ## Project Overview
 This project aims to optimize Uber ride booking by analyzing real-time data and predicting the best times to book based on ride price, waiting time, and ride time for selected routes. Data is collected from Uber every hour between 7 AM and 11 PM for 7 specific locations in Chennai, with predictions delivered via a user-friendly Streamlit interface.
@@ -64,7 +64,7 @@ The system continuously scrapes real-time Uber data and stores it in a MySQL dat
 ### 2. Data Preprocessing and Exploration
 - **Data Cleaning**: Handled missing data, and format inconsistencies.
 - **Exploratory Data Analysis (EDA)**: Analyzed ride times, ride prices, waiting times across the different locations and it's routes
-- **Feature Engineering** : Added additional features such as ride time, day of week, hour of day which are all beneficial to the analyis.
+- **Feature Engineering** : Added additional features such as ride time, day of week, hour of day which are all beneficial to the analysis.
 
 ### 3. Model Selection and Training with hyperparamter tuning:
 - **Model Selection**: Machine learning models like Linear Regression, Random Forest, and XGBoost Models were used

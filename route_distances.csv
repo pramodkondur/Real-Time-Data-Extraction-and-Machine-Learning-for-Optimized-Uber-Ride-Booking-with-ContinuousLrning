@@ -1,0 +1,22 @@
+route_from,route_to,distance_meters
+Express Avenue Mall,Chennai Citi Centre,2912.4
+Express Avenue Mall,Chennai Lighthouse,3699.5
+Express Avenue Mall,Marina Beach,3359.9
+Express Avenue Mall,Semmozhi Poonga,2948.5
+Express Avenue Mall,Sai Baba Temple Mylapore,3833.1
+Express Avenue Mall,PVR Ampa SkyOne,7417.2
+Chennai Citi Centre,Chennai Lighthouse,1902.5
+Chennai Citi Centre,Marina Beach,3266.2
+Chennai Citi Centre,Semmozhi Poonga,2701.3
+Chennai Citi Centre,Sai Baba Temple Mylapore,2447.1
+Chennai Citi Centre,PVR Ampa SkyOne,7801.8
+Chennai Lighthouse,Marina Beach,2215.9
+Chennai Lighthouse,Semmozhi Poonga,3766.7
+Chennai Lighthouse,Sai Baba Temple Mylapore,3397.7
+Chennai Lighthouse,PVR Ampa SkyOne,8867.1
+Marina Beach,Semmozhi Poonga,4430.7
+Marina Beach,Sai Baba Temple Mylapore,4259.2
+Marina Beach,PVR Ampa SkyOne,9559.0
+Semmozhi Poonga,Sai Baba Temple Mylapore,4202.3
+Semmozhi Poonga,PVR Ampa SkyOne,5100.5
+Sai Baba Temple Mylapore,PVR Ampa SkyOne,8550.0

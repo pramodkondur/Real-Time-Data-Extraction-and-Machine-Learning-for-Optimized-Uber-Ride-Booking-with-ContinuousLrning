@@ -47,7 +47,7 @@ The system continuously scrapes real-time Uber data and stores it in a MySQL dat
 
 
 ## Model Architechture 
-![CHEESE!](./images/architecture.jpg)
+![CHEESE!](./images/architechture.png)
 
 ## Approach
 ### 1. Data Collection 

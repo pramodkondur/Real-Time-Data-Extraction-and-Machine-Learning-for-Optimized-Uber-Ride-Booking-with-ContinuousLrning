@@ -17,7 +17,7 @@ import pickle
 import os
 
 def mlflow_run():
-    mlflow.set_tracking_uri("/Users/pramodkondur/PycharmProjects/UberEndtoEnd/mlruns/")
+    mlflow.set_tracking_uri("/Users/pramodkondur/PycharmProjects/UberEndtoEnd/bestmodels")
 
     # MLflow experiment setup
     mlflow.set_experiment("Uber Ride Prediction With Distance")

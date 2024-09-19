@@ -1,222 +1,289 @@
-from selenium import webdriver
-from selenium.common.exceptions import ElementClickInterceptedException
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
-from webdriver_manager.chrome import ChromeDriverManager
 import time
-from datetime import datetime
 import pandas as pd
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
+from csv import DictReader
+import json
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.remote.webelement import WebElement  # Import WebElement
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+import config as cf
+from selenium_stealth import stealth
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 import mysql.connector
+import schedule
+from datetime import datetime, timedelta, date
+import re
 
-# use pip install webdriver-manager also which is needed
 
-# Setup MYSQL connection
-# utilize your preferred database
-''''''
 con = mysql.connector.connect(
     host="localhost",
     user="root",
     password="expert789",
-    database="redbus"
+    database="uber"
 )
 
 cursor = con.cursor()
-query = """CREATE TABLE if not exists bus_details ( id INT AUTO_INCREMENT PRIMARY KEY, from_destination TEXT, 
-to_destination TEXT, waiting_time Float, CarType TEXT, departing_time DATETIME, duration TEXT, 
-reaching_time DATETIME, price DECIMAL(10, 2), )"""
+
+
+# Query to Create Table
+query = """CREATE TABLE if not exists uber_details (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    route_from TEXT,
+    route_to TEXT,
+    ride_type TEXT,
+    ride_max_persons FLOAT,
+    ride_request_time TEXT,
+    ride_waiting_time FLOAT,
+    ride_request_date TEXT,
+    ride_reaching_time TEXT,
+    ride_time TEXT,
+    ride_price DECIMAL(10, 2)
+    )"""
 cursor.execute(query)
 
+#chrome_options = Options()
 
-# Truncate Table
-#query = "TRUNCATE TABLE bus_routes"
-#cursor.execute(query)
+#chrome_options.add_argument("--disable-notifications")
+
+#try from video
+options = webdriver.ChromeOptions()
+options.add_argument(f"user-data-dir={cf.local['userDataDir']}")
+
+options.add_argument("--headless")  # Ensure GUI is off
+options.add_argument("--no-sandbox")  # Required if running as root
+options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
+
+#service = ChromeService(executable_path=r"/Users/pramodkondur/Downloads/chromedriver-mac-arm642/chromedriver")
+
+service = ChromeService(ChromeDriverManager().install())
 
 
-# Function to scroll to end of page to get all buses
-def scroll():
-    last_height = driver.execute_script("return document.body.scrollHeight")
+def get_details(route,url):
 
-    while True:
+    driver = webdriver.Chrome(service=service, options=options)
 
-        # Scroll down to the bottom in order to load all the buses
 
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    # Set the page load timeout
+    driver.set_page_load_timeout(6)  # Timeout after 10 seconds
 
-        # Wait for page to load
+    # Creating empty list to store the details of the routes
+    routes_list = []
 
-        time.sleep(.2)
-
-        # Calculate new scroll height and compare with last scroll height
-
-        new_height = driver.execute_script("return document.body.scrollHeight")
-
-        # If it is the same height then it is at the end of the page
-        if new_height == last_height:
-            break
-
-        last_height = new_height
-
-'''
-# Function to get bus details
-def get_bus_details_for_route(url):
-    driver.get(url)
-    route_info = (driver.find_element(By.CLASS_NAME, 'D136_h1').text).replace(' Bus', '')
-
-    dayelem = driver.find_element(By.XPATH, '//*[@id="searchDat"]')
-    dayvar = (dayelem.get_attribute('value')) + " 2024"
-
-    # waiting for page to load
-    time.sleep(4)
-
-    # Expanding all the buses section if it has 'view buses' button
-    # Adding an exception block if it is unable to click view buses button
     try:
-        tourismBusesAgency = driver.find_elements(By.CLASS_NAME, 'gmeta-data.clearfix')
+        driver.get(url)
+        print('Route loaded')
 
-        for agency in tourismBusesAgency:
-            btn_var = agency.find_element(By.CLASS_NAME, "button")
-            btn_var.click()
-    except ElementClickInterceptedException:
-        print(url, 'view-buses in this url not clickable')
+    except Exception as e:
+        print('Page load timed out or encountered an error:', str(e))
+        # Find all parent elements with the class name
+        time.sleep(1)
+        elements = []
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, "div._css-zSrrc")
+            print('elements loaded')
+            print(elements)
 
-    # Scrolling so all the bus data gets loaded
-    scroll()
+            time.sleep(1)
 
-    # Creating empty list to store the details of the buses
-    buses_list = []
+            # Loop through each element and extract details
+            for element in elements:
+                ride_type_person = element.find_element(By.CSS_SELECTOR, "p._css-gmxjOK").text
+                ride_time = element.find_element(By.CSS_SELECTOR, "p._css-bNXHBf").text
+                ride_price = element.find_element(By.CSS_SELECTOR, "p._css-iQlrzm").text
+                print("  ride_type_person:", ride_type_person)
+                print("  ride_time:", ride_time)
+                print("  ride_price:", ride_price)
+                print('  route:', route)
 
-    # Getting all the buses group so that we can get all the bus details for each of them i.e. states and private buses
-    busesgroup = driver.find_elements(By.CLASS_NAME, 'bus-items')
+                if ride_type_person[-1] == 'L':
+                    # Extract ride type and person
+                    ride_type = ride_type_person
+                    ride_person = 6
+                else:
+                    ride_type = ride_type_person[:-1]  # remove last character
+                    ride_person = float(ride_type_person[-1])  # convert last character to int
 
-    for buses in busesgroup:
-        buseslist = buses.find_elements(By.CLASS_NAME, 'clearfix.bus-item')
+                # Extract ride waiting time
+                ride_waiting_time = float(ride_time.split(" ")[0])
 
-        #print("buses number:", len(buseslist))
+                # Extract ride reaching time and convert to 24-hour format
+                ride_reaching_time_str = re.search(r'\d{1,2}:\d{2} (AM|PM)', ride_time).group()
+                ride_reaching_time = datetime.strptime(ride_reaching_time_str, "%I:%M %p")
+                ride_reaching_time = ride_reaching_time.strftime("%H:%M:%S")
 
-        # Gets all the required bus details in the selected group
+                # Get current time and date
+                current_time = datetime.now()
+                ride_request_time = current_time.strftime("%H:%M:%S")
+                ride_request_date = current_time.strftime("%Y-%m-%d")
 
-        for bus in buseslist:
-            busname = bus.find_element(By.CLASS_NAME, 'travels.lh-24.f-bold.d-color').text
-            # print(busname)
-            bustype = bus.find_element(By.CLASS_NAME, 'bus-type.f-12.m-top-16.l-color.evBus').text
-            departing_time = dayvar + " " + bus.find_element(By.CLASS_NAME, 'dp-time.f-19.d-color.f-bold').text + ":00"
-            duration = bus.find_element(By.CLASS_NAME, 'dur.l-color.lh-24').text
+                # Calculate ride time
+                ride_request_time_obj = datetime.strptime(ride_request_time, "%H:%M:%S")
+                ride_reaching_time_obj = datetime.strptime(ride_reaching_time, "%H:%M:%S")
+                ride_waiting_time_obj = timedelta(minutes=ride_waiting_time)
+                ride_time_obj = ride_reaching_time_obj - (ride_request_time_obj + ride_waiting_time_obj)
+                ride_time = str(ride_time_obj)
 
-            # Some buses have reaching date as the next day, so we are using try and exception to get these values
-            try:
-                bus.find_element(By.CLASS_NAME, 'next-day-dp-lbl.m-top-16') != 0
-                new_date = ((bus.find_element(By.CLASS_NAME, 'next-day-dp-lbl.m-top-16').text).replace("-",
-                                                                                                       " ")) + " 2024"
-                reaching_time = new_date + " " + bus.find_element(By.CLASS_NAME,
-                                                                  'bp-time.f-19.d-color.disp-Inline').text + ":00"
+                # Transform ride price
+                ride_price = float(ride_price.replace("₹", ""))
 
-            except NoSuchElementException:
-                reaching_time = dayvar + " " + bus.find_element(By.CLASS_NAME,
-                                                                'bp-time.f-19.d-color.disp-Inline').text + ":00"
+                # Transform route
+                route_parts = route.split(" to ")
+                route_from = route_parts[0]
+                route_to = route_parts[1]
 
-            star_rating = (((bus.find_element(By.CLASS_NAME, 'column-six.p-right-10.w-10.fl').text).replace("New",
-                                                                                                            "0")).replace(
-                " ", "0"))[0:3]
-            price = (bus.find_element(By.CLASS_NAME, 'fare.d-block').text).replace("INR ", "")
-            seats_available = (bus.find_element(By.CLASS_NAME, 'column-eight.w-15.fl').text)[0:2]
+                route_item = {
+                    'route_from': route_from,
+                    'route_to': route_to,
+                    'ride_type': ride_type,
+                    'ride_max_persons': ride_person,
+                    'ride_request_time': ride_request_time,
+                    'ride_waiting_time': ride_waiting_time,
+                    'ride_request_date': ride_request_date,
+                    'ride_reaching_time': ride_reaching_time,
+                    'ride_time': ride_time,
+                    'ride_price': ride_price
+                }
 
-            # print(bus_name, bus_type, departing_time, duration, reaching_time, star_rating, price, seats_available)
+                routes_list.append(route_item)
+                print(routes_list)
+                # Once all details are got for a route, we convert it to a dataframe so that we can write it to the db
+            df = pd.DataFrame(routes_list)
+            return (df)
+        except Exception as e:
+            print(f"Error extracting details for this element: {str(e)}")
 
-            bus_item = {
-                'route_name': route_info,
-                'route_link': url,
-                'busname': busname,
-                'bustype': bustype,
-                'departing_time': datetime.strptime(departing_time, "%d %b %Y %H:%M:%S"),
-                'duration': duration,
-                'reaching_time': datetime.strptime(reaching_time, "%d %b %Y %H:%M:%S"),
-                'star_rating': float(star_rating),
-                'price': float(price),
-                'seats_available': float(seats_available[0:2])
+    finally:
+        # Ensure that the browser is closed
+        driver.quit()
 
-            }
 
-            buses_list.append(bus_item)
-
-    # Once all details of the buses are got for a route, we convert it to a dataframe so that we can write it to the db
-    df = pd.DataFrame(buses_list)
-    return (df)
-
-'''
-
-# Function to write the scrapped data into database
 def write_into_db(df):
-    query = """insert into uber_details (route_name,route_link,busname,bustype,departing_time,duration,reaching_time,star_rating,price,seats_available) values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-             """
+    query = """INSERT INTO uber_details (
+        route_from,
+        route_to,
+        ride_type,
+        ride_max_persons,
+        ride_request_time,
+        ride_waiting_time,
+        ride_request_date,
+        ride_reaching_time,
+        ride_time,
+        ride_price
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+
     result = []
 
-    for index in df.index:
-        row_data = list(df.loc[index].values)
-        result.append(row_data)
-    cursor.executemany(query,
-                       result)  # execute many and storing data in list as it connects to the db once it finishes
-    # getting input rather than each time
-    con.commit()
+    if df is not None:
+        for index in df.index:
+            row_data = list(df.loc[index].values)
+            result.append(row_data)
+        cursor.executemany(query,
+                           result)  # execute many and storing data in list as it connects to the db once it finishes
+        # getting input rather than each time
+        con.commit()
+
+    else:
+        print("DataFrame is None, cannot process.")
 
 
-# A list to store all the route urls for each state transportation
-routes_urls = []
-
-# Function to get all the routes url for the selected state transportation
-def get_details(url):
-    driver.get(url)
-    time.sleep(2)
-
-    uber_go_block = driver.find_elements(By.CLASS_NAME,'_css-zSrrc')
-
-    #routes_list_to_get_urls = driver.find_elements(By.CLASS_NAME, 'route_link')
-    # This line used for checking no.of routes fetched from the page --> print(len(routes_list_to_get_urls))
-    # Gets all routes for page 1
-    #for elem in uber_go_block:
-    uber_go_block_price = uber_go_block.find_element(By.CLASS_NAME, '_css-fAzKU').text
-    print(uber_go_block_price)
-
-    #    url_to_extract = routes.find_element(By.TAG_NAME, 'a')
-     #   url_extracted = url_to_extract.get_attribute('href')
-        #print(url_extracted)
-     #   routes_urls.append(url_extracted)
-
-    # To handle pagination
-    #uber_go_block_1 = uber_go_block.find_element(By.CLASS_NAME, 'DC_117_pageTabs')
-'''
-    for page in page_elements:
-        try:
-            page.click()
-            print(page.text)
-            time.sleep(.2)
-            routes_list_to_get_urls = driver.find_elements(By.CLASS_NAME, 'route_link')
-            # This line used for checking no.of routes fetched from the page --> print(len(routes_list_to_get_urls))
-            # Gets all routes for page 2 to end
-            for routes in routes_list_to_get_urls:
-                url_to_extract = routes.find_element(By.TAG_NAME, 'a')
-                url_extracted = url_to_extract.get_attribute('href')
-                #print(url_extracted)
-                routes_urls.append(url_extracted)
-        # Usually the page 1 is not clickable since it is active, so we need to catch the exception
-        except ElementClickInterceptedException:
-            print('the page is not not clickable')
-'''
-
-list_of_routes_url = ['https://m.uber.com/go/product-selection?_gl=1%2A12fgt4e%2A_ga%2AMTAxNTgxNTUzMy4xNzI1NzA3MTIw%2A_ga_XTGQLY6KPT%2AMTcyNTcwNzEyMC4xLjEuMTcyNTcwNzEyMC4wLjAuMA..&drop%5B0%5D=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Rd%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&effect=&marketing_vistor_id=9ef3e8c6-15a1-4dd1-b1e6-2e4f58b3f0dd&pickup=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Triplicane%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJUXrunptoUjoR1q79EILYOlo%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0555796%2C%22longitude%22%3A80.28369959999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=8e9d0f00-6007-4012-b85d-1ce7c147ccb4&vehicle=20013279']
-
-    #'https://www.uber.com/in/en/']
 
 
-# Collecting all the urls for routes from the state tourism urls
-for url in list_of_routes_url:
-    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
-    get_details(url)
 
-# Collects all the bus details data from each route url we collected and writes to db
-#for url in routes_urls:
-#    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
-#    df = get_bus_details_for_route(url)
-#    write_into_db(df)
 
-con.close()
+route_urls = {
+'Chennai Lighthouse to Chennai Citi Centre' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Dr%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Citi Centre to Chennai Lighthouse':'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Dr%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Express Avenue Mall to Chennai Lighthouse' :'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Rd%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Lighthouse to Express Avenue Mall' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Road%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Lighthouse to PVR Ampa SkyOne':'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22PVR%20Ampa%20SkyOne%2C%20Aminjikarai%22%2C%22addressLine2%22%3A%221%2C%20Nelson%20Manickam%20Rd%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJyzSdtIRmUjoRqkjefEktGWk%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0739961%2C%22longitude%22%3A80.2214138%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'PVR Ampa SkyOne to Chennai Lighthouse': 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22PVR%20Ampa%20SkyOne%2C%20Aminjikarai%22%2C%22addressLine2%22%3A%221%2C%20Nelson%20Manickam%20Rd%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJyzSdtIRmUjoRqkjefEktGWk%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0739961%2C%22longitude%22%3A80.2214138%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Marina Beach to Chennai Lighthouse': 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Lighthouse to Marina Beach': 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Lighthouse to Semmozhi Poonga' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Semmozhi Poonga to Chennai Lighthouse' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Sai Baba Temple Mylapore to Chennai Lighthouse' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%2227M7%2B4VF%2C%20Venkatesa%20Agraharam%20Rd%2C%20Kabali%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Lighthouse to Sai Baba Temple Mylapore' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%22Venkatesa%20Agraharam%20Road%2C%20Kapaleeswarar%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Chennai%20Lighthouse%22%2C%22addressLine2%22%3A%22Marina%20Beach%20Road%2C%20Marina%20Beach%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ5dptVYBoUjoRCQL97Hq9F1w%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0397427%2C%22longitude%22%3A80.2792303%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Citi Centre to Express Avenue Mall': 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Rd%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Dr%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Express Avenue Mall to CitiCenter' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Doctor%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Rd%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'PVR Ampa SkyOne to Chennai Citi Centre': 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Doctor%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Ampa%20Skyone%22%2C%22addressLine2%22%3A%221%2C%20Nelson%20Manickam%20Rd%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJZ7WProRmUjoRRAt0jFusLw8%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0734943%2C%22longitude%22%3A80.22136259999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Citi Centre to PVR Ampa SkyOne' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Ampa%20Skyone%22%2C%22addressLine2%22%3A%22Nelson%20Manickam%20Road%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJZ7WProRmUjoRRAt0jFusLw8%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0734943%2C%22longitude%22%3A80.22136259999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Dr%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Citi Centre to Marina Beach' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Dr%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Marina Beach to Chennai Citi Centre' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Doctor%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Semmozhi Poonga to Chennai Citi Centre':'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Doctor%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Citi Centre to Semmozhi Poonga' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Doctor%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Chennai Citi Centre to Sai Baba Temple Mylapore' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%22Venkatesa%20Agraharam%20Road%2C%20Kapaleeswarar%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Doctor%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Sai Baba Temple Mylapore to Chennai Citi Centre' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22CHENNAI%20CITI%20CENTRE%22%2C%22addressLine2%22%3A%22Doctor%20Radha%20Krishnan%20Salai%2C%20Loganathan%20Colony%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJ8X9W6P9nUjoR1PQDf-g24qg%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0429549%2C%22longitude%22%3A80.2737891%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%2227M7%2B4VF%2C%20Venkatesa%20Agraharam%20Rd%2C%20Kabali%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Express Avenue Mall to PVR Ampa SkyOne' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Ampa%20Skyone%22%2C%22addressLine2%22%3A%22Nelson%20Manickam%20Road%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJZ7WProRmUjoRRAt0jFusLw8%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0734943%2C%22longitude%22%3A80.22136259999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Road%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'PVR Ampa SkyOne to Express Avenue Mall' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Road%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22PVR%20Ampa%20SkyOne%2C%20Aminjikarai%22%2C%22addressLine2%22%3A%221%2C%20Nelson%20Manickam%20Rd%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJyzSdtIRmUjoRqkjefEktGWk%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0739961%2C%22longitude%22%3A80.2214138%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Express Avenue Mall to Marina Beach' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Rd%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Marina Beach to Express Avenue Mall' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Road%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Semmozhi Poonga to Express Avenue Mall' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Rd%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Express Avenue Mall to Semmozhi Poonga' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Rd%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Sai Baba Temple Mylapore to Express Avenue Mall' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Rd%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%22Venkatesa%20Agraharam%20Road%2C%20Kapaleeswarar%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Express Avenue Mall to Sai Baba Temple Mylapore' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%22Venkatesa%20Agraharam%20Road%2C%20Kapaleeswarar%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Express%20Avenue%20Mall%22%2C%22addressLine2%22%3A%22Whites%20Road%2C%20Express%20Estate%2C%20Royapettah%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJgaOxaT1mUjoR_q0IaoVAKvE%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0581879%2C%22longitude%22%3A80.26407119999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'PVR Ampa SkyOne to Marina Beach' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22PVR%20Ampa%20SkyOne%2C%20Aminjikarai%22%2C%22addressLine2%22%3A%22Nelson%20Manickam%20Road%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJyzSdtIRmUjoRqkjefEktGWk%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0739961%2C%22longitude%22%3A80.2214138%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Marina Beach to PVR Ampa SkyOne' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22PVR%20Ampa%20SkyOne%2C%20Aminjikarai%22%2C%22addressLine2%22%3A%22Nelson%20Manickam%20Road%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJyzSdtIRmUjoRqkjefEktGWk%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0739961%2C%22longitude%22%3A80.2214138%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Semmozhi Poonga to PVR Ampa SkyOne' :'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22PVR%20Ampa%20SkyOne%2C%20Aminjikarai%22%2C%22addressLine2%22%3A%22Nelson%20Manickam%20Road%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJyzSdtIRmUjoRqkjefEktGWk%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0739961%2C%22longitude%22%3A80.2214138%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'PVR Ampa SkyOne to Semmozhi Poonga' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22PVR%20Ampa%20SkyOne%2C%20Aminjikarai%22%2C%22addressLine2%22%3A%221%2C%20Nelson%20Manickam%20Rd%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJyzSdtIRmUjoRqkjefEktGWk%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0739961%2C%22longitude%22%3A80.2214138%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'PVR Ampa SkyOne to Sai Baba Temple Mylapore': 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%22Venkatesa%20Agraharam%20Road%2C%20Kapaleeswarar%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22PVR%20Ampa%20SkyOne%2C%20Aminjikarai%22%2C%22addressLine2%22%3A%221%2C%20Nelson%20Manickam%20Rd%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJyzSdtIRmUjoRqkjefEktGWk%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0739961%2C%22longitude%22%3A80.2214138%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Sai Baba Temple Mylapore to PVR Ampa SkyOne': 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22PVR%20Ampa%20SkyOne%2C%20Aminjikarai%22%2C%22addressLine2%22%3A%22Nelson%20Manickam%20Road%2C%20Aminjikarai%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJyzSdtIRmUjoRqkjefEktGWk%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0739961%2C%22longitude%22%3A80.2214138%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%2227M7%2B4VF%2C%20Venkatesa%20Agraharam%20Rd%2C%20Kabali%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Sai Baba Temple Mylapore to Marina Beach' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%2227M7%2B4VF%2C%20Venkatesa%20Agraharam%20Rd%2C%20Kabali%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Marina Beach to Sai Baba Temple Mylapore' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%22Venkatesa%20Agraharam%20Road%2C%20Kapaleeswarar%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Semmozhi Poonga to Sai Baba Temple Mylapore' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%22Venkatesa%20Agraharam%20Road%2C%20Kapaleeswarar%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Sai Baba Temple Mylapore to Semmozhi Poonga' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Sai%20Baba%20Temple%20Mylapore%22%2C%22addressLine2%22%3A%2227M7%2B4VF%2C%20Venkatesa%20Agraharam%20Rd%2C%20Kabali%20Nagar%2C%20Venkatesa%20Agraharam%2C%20Mylapore%2C%20Chennai%2C%20Tamil%20Nadu%22%2C%22id%22%3A%22ChIJFwDbhM1nUjoR9lMVvvVD89o%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0328131%2C%22longitude%22%3A80.26467889999999%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Marina Beach to Semmozhi Poonga' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279',
+'Semmozhi Poonga to Marina Beach' : 'https://m.uber.com/go/product-selection?_gl=1%2Anu74i5%2A_gcl_au%2ANTEyODIxMTIyLjE3MjU4NjExNzg.%2A_ga%2ANTU1NzI2MzIuMTcyNTcxNTczNw..%2A_ga_XTGQLY6KPT%2AMTcyNTkzODkwMS4xMS4xLjE3MjU5NDAxOTguMC4wLjA.&drop%5B0%5D=%7B%22addressLine1%22%3A%22Marina%20Beach%22%2C%22addressLine2%22%3A%22Tamil%20Nadu%22%2C%22id%22%3A%22ChIJuzIBtptoUjoRCrZi347PSQU%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0499526%2C%22longitude%22%3A80.2824026%2C%22provider%22%3A%22google_places%22%7D&marketing_vistor_id=95dd8594-7619-4d77-b0e1-c3ca5ff6776f&pickup=%7B%22addressLine1%22%3A%22Semmozhi%20Poonga%22%2C%22addressLine2%22%3A%22Cathedral%20Road%2C%20opposite%20American%20Consulate%2C%20Ellaiamman%20Colony%2C%20Teynampet%2C%20Chennai%2C%20Tamil%20Nadu%2C%20India%22%2C%22id%22%3A%22ChIJcVcO_UZmUjoR21emTXt0U4k%22%2C%22source%22%3A%22SEARCH%22%2C%22latitude%22%3A13.0505371%2C%22longitude%22%3A80.2514128%2C%22provider%22%3A%22google_places%22%7D&uclick_id=e6e110fb-7ff2-4d6b-bebd-37dce42603ef&vehicle=20013279'
+
+}
+
+def fetch_and_write_details():
+    current_time = datetime.now().strftime("%H:%M")
+    print(f"Running fetch_and_write_details function at {current_time}...")
+    for key, value in route_urls.items():
+        df = get_details(key, value)
+        write_into_db(df)
+
+def wait_until_next_interval():
+    now = datetime.now()
+    current_minute = now.minute
+
+    # Define the stop and start times
+    stop_time = now.replace(hour=23, minute=0, second=0, microsecond=0)
+    start_time = now.replace(hour=7, minute=0, second=0, microsecond=0)
+
+    # Determine if we should stop for the night
+    if now > stop_time:
+        # If it's past 11:00 PM, calculate the wait time until 7:00 AM next day
+        next_start = start_time + timedelta(days=1)
+        wait_time = (next_start - now).total_seconds()
+        print(f"Waiting for {wait_time} seconds until {next_start}")
+        time.sleep(wait_time)
+        return
+
+    # Calculate the next hour mark
+    next_interval = now.replace(minute=0, second=0, microsecond=0)
+    if now.minute >= 0:
+        next_interval += timedelta(hours=1)
+
+    # If next_interval is after 11:00 PM, wait until 7:00 AM the next day
+    if next_interval > stop_time:
+        next_start = start_time + timedelta(days=1)
+        wait_time = (next_start - now).total_seconds()
+        print(f"Waiting for {wait_time} seconds until {next_start}")
+        time.sleep(wait_time)
+        return
+
+    wait_time = (next_interval - now).total_seconds()
+    print(f"Waiting for {wait_time} seconds until {next_interval}")
+    time.sleep(wait_time)
+
+while True:
+    fetch_and_write_details()  # Perform the task
+    wait_until_next_interval()  # Wait until the next top-of-hour mark

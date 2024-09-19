@@ -117,12 +117,12 @@ def mlflow_run():
 
     def model_train_test(df):
 
-        test_locations = ['PVR Ampa SkyOne', 'Marina Beach']
+        test_locations = ['Sai Baba Temple Mylapore', 'Chennai Lighthouse']
 
-        df_train = df[~((df['route_from'].isin(test_locations)) & (df['route_to'].isin(test_locations)))]
+        df_train = df[~((df['route_from'].isin(test_locations)) | (df['route_to'].isin(test_locations)))]
 
         # Optional: Select the test set separately for later evaluation
-        df_test = df[(df['route_from'].isin(test_locations)) & (df['route_to'].isin(test_locations))]
+        df_test = df[(df['route_from'].isin(test_locations)) | (df['route_to'].isin(test_locations))]
 
         # Step 1: Split the data into features (X) and targets (y)
         X_train = df_train.drop(
@@ -269,7 +269,6 @@ def mlflow_run():
 
     # Print to verify saving
     print(f"Models saved: {', '.join(models.keys())}")
-
 
 mlflow_run()
 

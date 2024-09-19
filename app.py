@@ -15,7 +15,7 @@ import geopandas as gpd
 import openrouteservice
 
 
-API_KEY = 'Your API'
+API_KEY = 'Your API here'
 
 locations = {
     "Express Avenue Mall": (13.058821, 80.264103),
@@ -28,9 +28,9 @@ locations = {
 }
 
 # Load the pipelines
-price_pipeline = joblib.load('distModels/price_pipeline.pkl')
-waiting_pipeline = joblib.load('distModels/time_pipeline.pkl')
-time_pipeline = joblib.load('distModels/waiting_pipeline.pkl')
+price_pipeline = joblib.load('bestmodels/Price Prediction Model_pipeline.pkl')
+waiting_pipeline = joblib.load('bestmodels/Waiting Time Prediction Model_pipeline.pkl')
+time_pipeline = joblib.load('bestmodels/Ride Time Prediction Model_pipeline.pkl')
 
 def add_rounded_corners(image, radius):
     # Create a mask for the rounded corners

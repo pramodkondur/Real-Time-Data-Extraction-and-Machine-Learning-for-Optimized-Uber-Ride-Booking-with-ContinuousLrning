@@ -1,4 +1,4 @@
-# Real-Time Uber Ride Price, Waiting Time, and Ride Time Prediction
+# Real-Time Data Extraction and Machine Learning for Optimized Uber Ride Booking
 
 ## Project Overview
 This project aims to optimize Uber ride booking by analyzing real-time data and predicting the best times to book based on ride price, waiting time, and ride time for selected routes. Data is collected from Uber every hour between 7 AM and 11 PM for 7 specific locations in Chennai, with predictions delivered via a user-friendly Streamlit interface.
@@ -44,6 +44,66 @@ The system continuously scrapes real-time Uber data and stores it in a MySQL dat
 - **APIs:** Nominatim, Open Route Service API
 - **Database:** MySQL
 - **Machine Learning Frameworks:** Scikit-learn (Random Forest, XGBoost)
+
+
+## Model Architechture 
+![CHEESE!](./images/architecture.jpg)
+
+## Approach
+### 1. Data Collection 
+- **Data Scrapping**: Data was scrapped from the Uber website using Selenium.
+- **Types of Data**: Data collected was from 7 locations and all their possible routes among them including ride type, ride request date, ride request time, waiting_time, reaching_time, and ride_price 
+
+### Data collected so far as of 10:45 AM 19-09-2024
+
+![CHEESE!](./images/datesimages.png)
+![CHEESE!](./images/totalrows.png)
+![CHEESE!](./images/samplerow.png)
+
+
+### 2. Data Preprocessing and Exploration
+- **Data Cleaning**: Handled missing data, and format inconsistencies.
+- **Exploratory Data Analysis (EDA)**: Analyzed ride times, ride prices, waiting times across the different locations and it's routes
+- **Feature Engineering** : Added additional features such as ride time, day of week, hour of day which are all beneficial to the analysis.
+
+### 3. Model Selection and Training with hyperparamter tuning:
+- **Model Selection**: Machine learning models like Linear Regression, Random Forest, and XGBoost Models were used
+- **Encoding and Scaling**: Categorical variables were one hot encoded and numerical variables were scaled.
+- **Train-Test Split**: Data split into train and test datasets for the model to be evaluated with unseen data
+- **Best Model** Random Forest performed the best among them
+
+![CHEESE!](./images/rf_model_best_param.png)
+
+### 4. Further Improvement:
+- **Including Extra Features**: In order to improve our model is by includes latitudes and longitudes of the locations and distance between them to then train the model to see if this is possible so as to be able to widen our location variables.
+- **APIs for Latitudes,Longitudes, and Distance**: Nominatim API was used to obtain latitudes, longitudes and Open Route Service API was used to get the distance for all the possible distances
+
+![CHEESE!](./images/latlong.png)
+![CHEESE!](./images/dist.png)
+
+### 5. Model Training and Testing on New Data:
+- **Encoding and Scaling**: Similarly categorical variables were one hot encoded and numerical variables were scaled.
+- **Train-Test-Split**: For this we don't do a random split but we used but we hide two location pairs and all it's possible occurance between any of the two locations and all the other locations to see if it able to learn from the new values
+- **Evaluation**: After training, testing and tuning. Random Forest seems to be performing the best
+
+![CHEESE!](./images/rd_withdistance.png)
+
+### 6. Interactive Web Application:
+- **Web App**: Streamlit was utilized to convert the process into an interactive web application.
+- **Location Restriction**: Since the data collected was only from 7 locations in the city of Chennai, the best method was to restrict the selection of locations for from and to to be within 20 km of the mean of the other 7 locations. That way we can get accurate predictions of our values.
+- **Routes Mapping**: Routes was also mapped to give a visual appearance of the users selectedroute using Open Route Service API
+
+## 7. Model Tracking and Updating:
+- **NewData-NewModel** : New data means new model or model retraining, this was handled using ML Flow and includes choosing the best model from the list automatically through our code
+- **Model-Tracking**: Using ML flow we can track the performance the models and make necessary adjustment to our model training by including additional features like more locations as time progresses
+
+![CHEESE!](./images/MlFlow.png)
+
+## Demo of the APP
+![CHEESE!](./images/Demo1.png)
+![CHEESE!](./images/Demo2.png)
+![CHEESE!](./images/Demo3.png)
+![CHEESE!](./images/Demo4.png)
 
 ## Setup Instructions
 

@@ -1,9 +1,9 @@
 # Real-Time Data Extraction and Machine Learning for Optimized Uber Ride Booking
 
 ## Project Overview
-This project aims to optimize Uber ride booking by analyzing real-time data and predicting the best times to book based on ride price, waiting time, and ride time for selected routes. Data is collected from Uber every hour between 7 AM and 11 PM for 7 specific locations in Chennai, with predictions delivered via a user-friendly Streamlit interface.
+This project aims to optimize Uber ride booking by analyzing real-time data and predicting the best times to book based on ride price, waiting time, and ride time for collected routes and multiple other routes.
 
-The system continuously scrapes real-time Uber data and stores it in a MySQL database. Machine Learning (ML) models are used to make predictions on the best times for booking, taking into account factors like latitude, longitude, and distance. New data is processed daily at 9 AM, with models retrained automatically using MLFlow to track and improve model performance.
+The system continuously scrapes real-time Uber data and stores it in a MySQL database. Machine Learning (ML) models are used to make predictions on the best times for booking, taking into account factors like latitude, longitude, and distance using APIs. New data is processed daily at 9 AM, with models retrained automatically using MLFlow to track and improve model performance. 
 
 ## Project Features
 - **Real-time Data Collection:** Data is scraped from Uber for 7 locations, with all possible routes among them captured in 1-hour intervals from 7 AM to 11 PM.

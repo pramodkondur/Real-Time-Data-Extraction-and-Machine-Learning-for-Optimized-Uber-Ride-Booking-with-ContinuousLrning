@@ -5,6 +5,8 @@ This project aims to optimize Uber ride booking by analyzing real-time data and 
 
 The system continuously scrapes real-time Uber data and stores it in a MySQL database. Machine Learning (ML) models are used to make predictions on the best times for booking, taking into account factors like latitude, longitude, and distance using APIs. New data is processed daily at 9 AM, with models retrained automatically using MLFlow to track and improve model performance. 
 
+Overall, this project provides users with an efficient, data-driven way to predict the best time to book an Uber ride, ensuring cost savings and convenience by analyzing real-time data and leveraging machine learning models.
+
 ## Project Features
 - **Real-time Data Collection:** Data is scraped from Uber for 7 locations, with all possible routes among them captured in 1-hour intervals from 7 AM to 11 PM.
 - **Database Management:** Data is stored in MySQL and continuously collected using job scheduling, while MLFlow is used to track and manage model training.
@@ -131,5 +133,3 @@ The system continuously scrapes real-time Uber data and stores it in a MySQL dat
 - **Additional Routes:** Expand beyond Chennai to include other cities.
 - **Live Integration with Uber API:** Direct integration for real-time Uber API access for better data accuracy.
 ---
-
-This project provides users with an efficient, data-driven way to predict the best time to book an Uber ride, ensuring cost savings and convenience by analyzing real-time data and leveraging machine learning models.
